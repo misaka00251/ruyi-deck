@@ -159,7 +159,7 @@ func prepare(cfg *config.Config, options Options, archive bool, now time.Time) (
 func arguments(op operation, parent string) []string {
 	// DNF 4 --repoid already selects only this repository. It must not be
 	// combined with --disablerepo, which conflicts with that selection mode.
-	args := []string{"--setopt=logfilelevel=0", "--repofrompath=" + op.Target + "," + op.Source,
+	args := []string{"--repofrompath=" + op.Target + "," + op.Source,
 		"--setopt=" + op.Target + ".skip_if_unavailable=False", "reposync", "--repoid=" + op.Target, "--download-path=" + parent, "--download-metadata"}
 	if op.Incremental {
 		args = append(args, "--delete")
@@ -197,8 +197,8 @@ func execute(ctx context.Context, cfg *config.Config, options Options, archive b
 		printPlan(out, p)
 		return nil
 	}
-	if err := run(ctx, io.Discard, "dnf", "--setopt=logfilelevel=0", "reposync", "--help"); err != nil {
-		return fmt.Errorf("dnf reposync is unavailable (install the DNF 4 reposync plugin): %w", err)
+	if err := run(ctx, io.Discard, "dnf", "reposync", "--help"); err != nil {
+		return fmt.Errorf("dnf reposync is unavailable (install the DNF reposync plugin): %w", err)
 	}
 	if err := ctx.Err(); err != nil {
 		return err
