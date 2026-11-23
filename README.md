@@ -36,8 +36,9 @@ Runtime dependencies:
 - Repository operations: DNF 4 with the `reposync` plugin.
 - RPM artifacts: `rpm2cpio` and GNU `cpio`.
 
-For GitHub artifacts, provide a token with repository Actions read access through
-the environment variable named by `token_env` (`GITHUB_TOKEN` in the sample).
+Set `token` under `sources.dailybuild.github` or `github_release` in your local
+configuration. Actions artifacts require Actions read access; public Release
+assets can be downloaded with an empty token.
 
 ## Usage
 

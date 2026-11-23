@@ -261,7 +261,10 @@ func printPlan(out io.Writer, cfg *config.Config, p *plan) {
 				fmt.Fprintf(out, "  Download %s\n", artifact.URL)
 			case "github":
 				g := cfg.Sources.Dailybuild.GitHub
-				fmt.Fprintf(out, "  Discover latest successful run: https://api.github.com/repos/%s/%s/actions/workflows/%s/runs?status=success\n  Artifact: %s; ZIP match: %s; token environment: %s\n", g.Owner, g.Repository, g.Workflow, g.ArtifactName, artifact.Source.Match, g.TokenEnv)
+				fmt.Fprintf(out, "  Discover latest successful run: https://api.github.com/repos/%s/%s/actions/workflows/%s/runs?status=success\n  Artifact: %s; ZIP match: %s; token: %s\n", g.Owner, g.Repository, g.Workflow, g.ArtifactName, artifact.Source.Match, tokenStatus(g.Token))
+			case "github_release":
+				g := cfg.Sources.Dailybuild.GitHubRelease
+				fmt.Fprintf(out, "  Discover latest release: https://api.github.com/repos/%s/%s/releases/latest\n  Asset match: %s; token: %s (optional for public releases)\n", g.Owner, g.Repository, artifact.Source.Match, tokenStatus(g.Token))
 			case "rpm":
 				fmt.Fprintf(out, "  Discover %s (%s) using %srepodata/repomd.xml or directory index\n  Extract %s with rpm2cpio/cpio\n", artifact.Source.Package, artifact.Source.Architecture, cfg.Targets[target.Name].Dailybuild.OVMFBaseURL, artifact.Source.InternalPath)
 			}
@@ -279,4 +282,12 @@ func printPlan(out io.Writer, cfg *config.Config, p *plan) {
 	for _, directory := range p.Expired {
 		fmt.Fprintf(out, "Remove expired dailybuild after successful publication: %s\n", directory)
 	}
+}
+
+// tokenStatus describes authentication in previews without printing credentials.
+func tokenStatus(token string) string {
+	if token == "" {
+		return "not configured"
+	}
+	return "configured"
 }

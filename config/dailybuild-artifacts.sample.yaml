@@ -1,7 +1,8 @@
 version: 1
 
-# Six static images are required; Zero and OVMF artifacts are optional.
+# Six images are required; Zero and OVMF artifacts are optional.
 # Static paths below are examples relative to sources.dailybuild.build_base_url.
+# rva23 installer/desktop images use GitHub Release asset filename patterns.
 artifacts:
   - id: rootfs
     filename: "openRuyi-{date}-rootfs.tar"
@@ -36,8 +37,8 @@ artifacts:
         type: static
         path: "images/rva20/server-cloud.qcow2"
       rva23:
-        type: static
-        path: "images/rva23/server-cloud.qcow2"
+        type: github_release
+        match: "openRuyi-installiso.riscv64-*.qcow2"
 
   - id: server-dvd
     filename: "openRuyi-{date}-Server-dvd.iso"
@@ -48,8 +49,8 @@ artifacts:
         type: static
         path: "images/rva20/server-dvd.iso"
       rva23:
-        type: static
-        path: "images/rva23/server-dvd.iso"
+        type: github_release
+        match: "openRuyi-installiso.riscv64-*.iso"
 
   - id: workstation-labwc
     filename: "openRuyi-{date}-Workstation-labwc-dvd.iso"
@@ -60,8 +61,8 @@ artifacts:
         type: static
         path: "images/rva20/workstation-labwc-dvd.iso"
       rva23:
-        type: static
-        path: "images/rva23/workstation-labwc-dvd.iso"
+        type: github_release
+        match: "openRuyi-livecd.riscv64-*.iso"
 
   - id: workstation-kde
     filename: "openRuyi-{date}-Workstation-kde-dvd.iso"
@@ -72,8 +73,8 @@ artifacts:
         type: static
         path: "images/rva20/workstation-kde-dvd.iso"
       rva23:
-        type: static
-        path: "images/rva23/workstation-kde-dvd.iso"
+        type: github_release
+        match: "openRuyi-livecd_kde.riscv64-*.iso"
 
 
   - id: zero-rootfs

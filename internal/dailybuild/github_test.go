@@ -2,6 +2,7 @@ package dailybuild
 
 import (
 	"archive/zip"
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -164,5 +165,71 @@ func TestGitHubDownloadsArtifactFromSelectedRun(t *testing.T) {
 	}
 	if string(archiveBytes) != readText(t, destination) {
 		t.Fatal("downloaded artifact differs from API content")
+	}
+}
+
+func TestGitHubSourcesReadConfiguredTokensWithoutLoggingThem(t *testing.T) {
+	archive := makeZIP(t, "image.iso")
+	archiveBytes, err := os.ReadFile(archive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A process environment token must not replace the configured credentials.
+	t.Setenv("GITHUB_TOKEN", "test-environment-token")
+	for _, source := range []string{"github", "github_release"} {
+		t.Run(source, func(t *testing.T) {
+			wantToken := "test-actions-token"
+			if source == "github_release" {
+				wantToken = "test-release-token"
+			}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Header.Get("Authorization") != "Bearer "+wantToken {
+					t.Error("request did not use this source's configured token")
+				}
+				switch {
+				case strings.HasSuffix(r.URL.Path, "/releases/latest"):
+					io.WriteString(w, `{"id":42,"tag_name":"v1"}`)
+				case strings.HasSuffix(r.URL.Path, "/releases/42/assets"):
+					io.WriteString(w, `[{"id":7,"name":"image.iso","state":"uploaded","size":5}]`)
+				case strings.HasSuffix(r.URL.Path, "/releases/assets/7"):
+					io.WriteString(w, "image")
+				case strings.HasSuffix(r.URL.Path, "/runs"):
+					io.WriteString(w, `{"workflow_runs":[{"id":42,"status":"completed","conclusion":"success","updated_at":"2026-11-23T00:00:00Z"}]}`)
+				case strings.HasSuffix(r.URL.Path, "/runs/42/artifacts"):
+					io.WriteString(w, `{"artifacts":[{"id":7,"name":"output","expired":false}]}`)
+				case strings.HasSuffix(r.URL.Path, "/artifacts/7/zip"):
+					w.Write(archiveBytes)
+				default:
+					t.Errorf("unexpected API request %s", r.URL.Path)
+					http.NotFound(w, r)
+				}
+			}))
+			defer server.Close()
+			var output bytes.Buffer
+			store := testReleaseStore(t, server, &output)
+			cfg := store.cfg
+			cfg.Sources.Dailybuild.GitHub.Token = "test-actions-token"
+			cfg.Sources.Dailybuild.GitHubRelease.Token = "test-release-token"
+			artifactSource := config.ArtifactSource{Type: source, Match: "image.iso"}
+			cfg.Manifest.Artifacts[0].Sources["rva23"] = artifactSource
+			if err := Create(context.Background(), cfg, Options{Targets: []string{"rva23"}, Date: "2026-11-23", DryRun: true}, &output); err != nil {
+				t.Fatal(err)
+			}
+			destination := filepath.Join(store.directory, "renamed.iso")
+			if err := store.fetch(context.Background(), "rva23", artifactPlan{Source: artifactSource}, destination); err != nil {
+				t.Fatal(err)
+			}
+			if err := checkFile(destination); err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(output.String(), "token: configured") {
+				t.Fatal("preview omitted token configuration status")
+			}
+			for _, token := range []string{"test-actions-token", "test-release-token", "test-environment-token"} {
+				if strings.Contains(output.String(), token) {
+					t.Fatal("output exposed a token")
+				}
+			}
+		})
 	}
 }

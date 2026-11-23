@@ -1,9 +1,12 @@
 package dailybuild
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -12,6 +15,12 @@ import (
 
 	"github.com/openRuyi-Project/ruyi-deck/internal/fsutil"
 )
+
+// downloadIntegrity supplies optional checks from the source's asset metadata.
+type downloadIntegrity struct {
+	Size   int64
+	SHA256 []byte
+}
 
 // statusError preserves the HTTP status so optional missing files can be recognized.
 type statusError struct {
@@ -70,6 +79,11 @@ func requestError(err error) error {
 
 // downloadRequest also accepts authenticated GitHub API requests.
 func downloadRequest(ctx context.Context, client *http.Client, request *http.Request, target string) error {
+	return downloadVerifiedRequest(ctx, client, request, target, downloadIntegrity{})
+}
+
+// downloadVerifiedRequest checks asset metadata before installing the staged file.
+func downloadVerifiedRequest(ctx context.Context, client *http.Client, request *http.Request, target string, integrity downloadIntegrity) error {
 	response, err := client.Do(request)
 	if err != nil {
 		return fmt.Errorf("download request: %w", requestError(err))
@@ -89,7 +103,12 @@ func downloadRequest(ctx context.Context, client *http.Client, request *http.Req
 		partial.Close()
 		os.Remove(partialName) // The complete staging tree is also removed on failure.
 	}()
-	size, err := fsutil.Copy(ctx, partial, response.Body)
+	var output io.Writer = partial
+	checksum := sha256.New()
+	if len(integrity.SHA256) > 0 {
+		output = io.MultiWriter(partial, checksum)
+	}
+	size, err := fsutil.Copy(ctx, output, response.Body)
 	if err != nil {
 		return fmt.Errorf("read download: %w", err)
 	}
@@ -98,6 +117,12 @@ func downloadRequest(ctx context.Context, client *http.Client, request *http.Req
 	}
 	if response.ContentLength >= 0 && size != response.ContentLength {
 		return fmt.Errorf("incomplete download: got %d bytes, expected %d", size, response.ContentLength)
+	}
+	if integrity.Size > 0 && size != integrity.Size {
+		return fmt.Errorf("release asset size mismatch: got %d bytes, expected %d", size, integrity.Size)
+	}
+	if len(integrity.SHA256) > 0 && !bytes.Equal(checksum.Sum(nil), integrity.SHA256) {
+		return fmt.Errorf("release asset SHA256 mismatch")
 	}
 	if err := partial.Close(); err != nil {
 		return fmt.Errorf("close downloaded file: %w", err)

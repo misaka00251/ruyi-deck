@@ -47,7 +47,9 @@ func (g *githubAPI) request(ctx context.Context, endpoint string) (*http.Request
 	if err != nil {
 		return nil, err
 	}
-	r.Header.Set("Authorization", "Bearer "+g.token)
+	if g.token != "" {
+		r.Header.Set("Authorization", "Bearer "+g.token)
+	}
 	r.Header.Set("Accept", "application/vnd.github+json")
 	r.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 	r.Header.Set("User-Agent", "ruyi-deck/1")
@@ -66,7 +68,7 @@ func (g *githubAPI) jsonPage(ctx context.Context, endpoint string, value any) (b
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return false, fmt.Errorf("GitHub API: HTTP %d (check repository Actions read access, token, and rate limits)", response.StatusCode)
+		return false, fmt.Errorf("GitHub API: HTTP %d (check repository access, token permissions, and rate limits)", response.StatusCode)
 	}
 	data, err := io.ReadAll(io.LimitReader(response.Body, (8<<20)+1))
 	if err != nil {
@@ -146,7 +148,7 @@ func (g *githubAPI) artifact(ctx context.Context, runID int64) (githubArtifact, 
 // downloadZIP selects a run afresh for this invocation, then follows the authenticated download.
 func (g *githubAPI) downloadZIP(ctx context.Context, target string) error {
 	if g.token == "" {
-		return fmt.Errorf("GitHub token environment variable %s is not set", g.settings.TokenEnv)
+		return fmt.Errorf("GitHub Actions token is not configured")
 	}
 	run, err := g.latestRun(ctx)
 	if err != nil {

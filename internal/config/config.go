@@ -82,8 +82,9 @@ type Sources struct {
 		RollingBaseURL string `yaml:"rolling_base_url"`
 	} `yaml:"repo"`
 	Dailybuild struct {
-		BuildBaseURL string       `yaml:"build_base_url"`
-		GitHub       GitHubSource `yaml:"github"`
+		BuildBaseURL  string              `yaml:"build_base_url"`
+		GitHub        GitHubSource        `yaml:"github"`
+		GitHubRelease GitHubReleaseSource `yaml:"github_release"`
 	} `yaml:"dailybuild"`
 }
 
@@ -93,7 +94,15 @@ type GitHubSource struct {
 	Repository   string `yaml:"repository"`
 	Workflow     string `yaml:"workflow"`
 	ArtifactName string `yaml:"artifact_name"`
-	TokenEnv     string `yaml:"token_env"`
+	Token        string `yaml:"token"`
+}
+
+// GitHubReleaseSource selects a repository's latest published release.
+// Token is optional, allowing public releases without authentication.
+type GitHubReleaseSource struct {
+	Owner      string `yaml:"owner"`
+	Repository string `yaml:"repository"`
+	Token      string `yaml:"token"`
 }
 
 // Retention counts calendar days including today.
@@ -116,7 +125,7 @@ type Artifact struct {
 	Sources     map[string]ArtifactSource `yaml:"sources"`
 }
 
-// ArtifactSource describes a static download, ZIP pattern or RPM internal path.
+// ArtifactSource describes a static URL, release asset, ZIP member or RPM file.
 type ArtifactSource struct {
 	Type         string `yaml:"type"`
 	URL          string `yaml:"url"`
@@ -129,7 +138,6 @@ type ArtifactSource struct {
 
 var safeName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 var fixedZone = regexp.MustCompile(`^UTC([+-])([0-9]{2}):([0-9]{2})$`)
-var envName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 // Load rejects unknown fields and resolves relative paths beside the main YAML.
 func Load(filename string) (*Config, error) {
@@ -142,7 +150,6 @@ func Load(filename string) (*Config, error) {
 	c.Layout.Releases.Rolling = "creek"
 	c.Layout.Archive.RepoRoot = "anchorage"
 	c.Layout.Archive.Repo.Rolling = "creek"
-	c.Sources.Dailybuild.GitHub.TokenEnv = "GITHUB_TOKEN"
 	if err := readYAML(abs, c); err != nil {
 		return nil, err
 	}
@@ -198,6 +205,17 @@ func resolvePath(base, value string) string {
 
 // ValidName leaves room for temporary filename prefixes and suffixes.
 func ValidName(value string) bool { return len(value) <= 240 && safeName.MatchString(value) }
+
+// validGitHubToken permits an empty token and otherwise requires visible ASCII.
+// Validation errors must describe the constraint without including the token.
+func validGitHubToken(value string) bool {
+	for _, character := range value {
+		if character < '!' || character > '~' {
+			return false
+		}
+	}
+	return true
+}
 
 // ValidRelativePath rejects absolute paths, traversal and glob characters.
 func ValidRelativePath(value string) bool {
@@ -459,8 +477,11 @@ func (c *Config) validateSource(t Target, s ArtifactSource) error {
 		return err
 	case "github":
 		g := c.Sources.Dailybuild.GitHub
-		if !ValidName(g.Owner) || !ValidName(g.Repository) || !ValidName(g.Workflow) || !ValidName(g.ArtifactName) || !envName.MatchString(g.TokenEnv) {
-			return errors.New("complete GitHub owner, repository, workflow, artifact_name and token_env are required")
+		if !ValidName(g.Owner) || !ValidName(g.Repository) || !ValidName(g.Workflow) || !ValidName(g.ArtifactName) {
+			return errors.New("complete GitHub owner, repository, workflow and artifact_name are required")
+		}
+		if !validGitHubToken(g.Token) {
+			return errors.New("GitHub Actions token must contain only visible ASCII characters, or be empty")
 		}
 		if s.Match == "" || strings.HasPrefix(s.Match, "/") || strings.Contains(s.Match, "..") || strings.ContainsAny(s.Match, "\\\x00\r\n") {
 			return errors.New("unsafe ZIP match pattern")
@@ -470,6 +491,23 @@ func (c *Config) validateSource(t Target, s ArtifactSource) error {
 		}
 		if s.URL != "" || s.Path != "" || s.Package != "" || s.Architecture != "" || s.InternalPath != "" {
 			return errors.New("GitHub source contains fields for another source type")
+		}
+	case "github_release":
+		g := c.Sources.Dailybuild.GitHubRelease
+		if !ValidName(g.Owner) || !ValidName(g.Repository) {
+			return errors.New("GitHub release owner and repository are required")
+		}
+		if !validGitHubToken(g.Token) {
+			return errors.New("GitHub release token must contain only visible ASCII characters, or be empty")
+		}
+		if strings.TrimSpace(s.Match) == "" || strings.Contains(s.Match, "..") || strings.ContainsAny(s.Match, "/\\\x00\r\n") {
+			return errors.New("unsafe release asset match pattern; match a filename without directories")
+		}
+		if _, err := path.Match(s.Match, "example"); err != nil {
+			return err
+		}
+		if s.URL != "" || s.Path != "" || s.Package != "" || s.Architecture != "" || s.InternalPath != "" {
+			return errors.New("GitHub release source contains fields for another source type")
 		}
 	case "rpm":
 		if !ValidName(s.Package) || !ValidName(s.Architecture) || !ValidRelativePath(s.InternalPath) {

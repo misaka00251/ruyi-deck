@@ -3,6 +3,7 @@ package dailybuild
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -16,14 +17,16 @@ type cachedSource struct {
 	Err      error
 }
 
-// sourceStore shares one GitHub ZIP and one converted RPM per source between artifacts.
+// sourceStore shares GitHub discovery and converted RPMs between artifacts and targets.
 type sourceStore struct {
 	cfg       *config.Config
 	client    *http.Client
 	directory string
 	github    *cachedSource
+	release   *releaseSource
 	rpms      map[string]cachedSource
 	run       externalRun
+	out       io.Writer
 }
 
 // fetch writes a single artifact under its manifest filename in private staging.
@@ -36,13 +39,15 @@ func (s *sourceStore) fetch(ctx context.Context, target string, artifact artifac
 	case "github":
 		if s.github == nil {
 			s.github = &cachedSource{Filename: filepath.Join(s.directory, "github.zip")}
-			g := githubAPI{client: s.client, base: "https://api.github.com", settings: s.cfg.Sources.Dailybuild.GitHub, token: os.Getenv(s.cfg.Sources.Dailybuild.GitHub.TokenEnv)}
+			g := githubAPI{client: s.client, base: "https://api.github.com", settings: s.cfg.Sources.Dailybuild.GitHub, token: s.cfg.Sources.Dailybuild.GitHub.Token}
 			s.github.Err = g.downloadZIP(ctx, s.github.Filename)
 		}
 		if s.github.Err != nil {
 			return s.github.Err
 		}
 		return extractZIP(ctx, s.github.Filename, artifact.Source.Match, destination)
+	case "github_release":
+		return s.fetchRelease(ctx, artifact.Source.Match, destination)
 	case "rpm":
 		base := s.cfg.Targets[target].Dailybuild.OVMFBaseURL
 		key := base + "|" + artifact.Source.Package + "|" + artifact.Source.Architecture
@@ -60,6 +65,39 @@ func (s *sourceStore) fetch(ctx context.Context, target string, artifact artifac
 		return extractCPIO(ctx, cached.Filename, artifact.Source.InternalPath, destination, s.run)
 	default:
 		return fmt.Errorf("unsupported artifact source %q", artifact.Source.Type)
+	}
+	return nil
+}
+
+// fetchRelease resolves latest only once, then matches each artifact against its assets.
+func (s *sourceStore) fetchRelease(ctx context.Context, pattern, destination string) error {
+	settings := s.cfg.Sources.Dailybuild.GitHubRelease
+	if s.release == nil {
+		s.release = &releaseSource{api: githubAPI{
+			client: s.client, base: "https://api.github.com",
+			settings: config.GitHubSource{Owner: settings.Owner, Repository: settings.Repository},
+			token:    settings.Token,
+		}}
+		s.release.release, s.release.err = s.release.api.latestRelease(ctx)
+		if s.release.err == nil {
+			s.release.assets, s.release.err = s.release.api.releaseAssets(ctx, s.release.release.ID)
+		}
+		if s.release.err == nil && s.out != nil {
+			fmt.Fprintf(s.out, "Selected GitHub release: %s/%s tag %q (ID %d)\n", settings.Owner, settings.Repository, s.release.release.Tag, s.release.release.ID)
+		}
+	}
+	if s.release.err != nil {
+		return fmt.Errorf("GitHub release %s/%s: %w", settings.Owner, settings.Repository, s.release.err)
+	}
+	asset, err := matchReleaseAsset(s.release.assets, pattern)
+	if err != nil {
+		return fmt.Errorf("GitHub release %s/%s tag %q: %w", settings.Owner, settings.Repository, s.release.release.Tag, err)
+	}
+	if s.out != nil {
+		fmt.Fprintf(s.out, "  GitHub release asset: %q -> %s\n", asset.Name, destination)
+	}
+	if err := s.release.api.downloadReleaseAsset(ctx, asset, destination); err != nil {
+		return fmt.Errorf("GitHub release %s/%s tag %q asset %q: %w", settings.Owner, settings.Repository, s.release.release.Tag, asset.Name, err)
 	}
 	return nil
 }

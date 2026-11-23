@@ -60,7 +60,7 @@ func Create(ctx context.Context, cfg *config.Config, options Options, out io.Wri
 	}()
 	client := newHTTPClient()
 	defer client.CloseIdleConnections()
-	store := &sourceStore{cfg: cfg, client: client, directory: staging, run: runExternal}
+	store := &sourceStore{cfg: cfg, client: client, directory: staging, run: runExternal, out: out}
 	var successful, failed []string
 	var failures error
 	for _, target := range p.Targets {

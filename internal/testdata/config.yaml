@@ -53,7 +53,11 @@ sources:
       repository: example-repo
       workflow: build.yml
       artifact_name: output
-      token_env: GITHUB_TOKEN
+      token: ""
+    github_release:
+      owner: example-owner
+      repository: example-images
+      token: ""
 
 dailybuild:
   current_link: current

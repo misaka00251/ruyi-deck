@@ -56,8 +56,13 @@ sources:
       # Use the workflow filename: run IDs change with every execution.
       workflow: build.yml
       artifact_name: output
-      # Only the environment variable NAME belongs here, never the token itself.
-      token_env: GITHUB_TOKEN
+      # Fill in your token in the private deployment configuration.
+      token: ""
+    github_release:
+      owner: example-owner
+      repository: example-images
+      # Optional for public releases; no workflow or run ID is needed.
+      token: ""
 
 dailybuild:
   current_link: current

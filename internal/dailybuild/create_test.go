@@ -250,12 +250,12 @@ func TestMissingGitHubTokenKeepsOptionalFilename(t *testing.T) {
 	defer server.Close()
 	cfg := dailyConfig(t, server.URL)
 	cfg.Manifest.Artifacts[1].Sources["rva23"] = config.ArtifactSource{Type: "github", Match: "example-rootfs.cpio.gz"}
-	t.Setenv(cfg.Sources.Dailybuild.GitHub.TokenEnv, "")
+	cfg.Sources.Dailybuild.GitHub.Token = ""
 	var out bytes.Buffer
 	if err := Create(context.Background(), cfg, Options{Targets: []string{"rva23"}, Date: "2026-11-12"}, &out); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "GITHUB_TOKEN is not set") {
+	if !strings.Contains(out.String(), "GitHub Actions token is not configured") {
 		t.Fatal("missing token was not explained")
 	}
 	page := readText(t, filepath.Join(cfg.Paths.ReleasesRoot, "rolling", "2026-11-12", "rva23", "index.html"))
